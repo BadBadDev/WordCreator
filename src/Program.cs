@@ -1,86 +1,84 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text.Json;
+﻿using System.Text.Json;
 
-namespace WordCreator
+namespace WordCreator;
+
+public static class Program
 {
-    public class Program
+    private static readonly ConsoleColor[] ConsoleColors =
+    [
+        ConsoleColor.Red,
+        ConsoleColor.Green,
+        ConsoleColor.Yellow,
+        ConsoleColor.Blue,
+        ConsoleColor.Magenta,
+        ConsoleColor.Cyan
+    ];
+
+    public static void Main(string[] args)
     {
-        private static HashSet<string> _dictionary;
-        private static List<string> _validWords;
-        private static int _colorCounter = 0;
-        private static readonly ConsoleColor[] _consoleColors = {ConsoleColor.Red, ConsoleColor.Green, ConsoleColor.Yellow, ConsoleColor.Blue, ConsoleColor.Magenta, ConsoleColor.Cyan};
-
-        public static void Main(string[] args)
+        var dictionaryPath = Path.Combine(AppContext.BaseDirectory, "dictionary.json");
+        if (!File.Exists(dictionaryPath))
         {
-            _dictionary = JsonSerializer.Deserialize<HashSet<string>>(File.ReadAllText("dictionary.json"));
-
-            while (true)
-            {
-                Console.ForegroundColor = ConsoleColor.White;
-                _validWords = [];
-
-                Console.Write("\nType in the letters: ");
-
-                List<string> letters = Console.ReadLine()
-                    .Where(l => char.IsLetter(l))
-                    .Select(l => l.ToString())
-                    .ToList();
-
-                Console.WriteLine("Valid Words:");
-
-                //use all lengths possible
-                for (int i = letters.Count; i > 2; i--)
-                {
-                    string[] combinations = new string[i];
-                    Combine(combinations, letters, i);
-                }
-
-            }
+            Console.Error.WriteLine("Could not find dictionary.json next to the application.");
+            return;
         }
 
-        /// <summary>
-        /// Arrange every possible combination (w/o repeating elements) and prints the valid English words
-        /// </summary>
-        /// <param name="combinations">An empty array of length equal to lenght of each combination</param>
-        /// <param name="letters">Letters to use in the combinations</param>
-        /// <param name="combinationLength">Length of each resulting combination</param>
-        private static void Combine(string[] combinations, List<string> letters, int combinationLength)
+        try
         {
-            if (combinationLength > letters.Count)
-                throw new ArgumentException("length has to be <= element count");
+            var dictionary = JsonSerializer.Deserialize<HashSet<string>>(
+                File.ReadAllText(dictionaryPath),
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
-            if (combinationLength == 0)
+            if (dictionary is null)
             {
-                string word = string.Join("", combinations);
-                if (_dictionary.Contains(word) && !_validWords.Contains(word))
-                {
-                    _validWords.Add(word);
-                    ColorfulPrint(word);
-                }
+                Console.Error.WriteLine("Could not load the dictionary.");
                 return;
             }
 
-            foreach (var letter in letters)
-            {
-                combinations[combinations.Length - combinationLength] = letter;
-
-                var tempList = new List<string>();
-                tempList.AddRange(letters);
-                tempList.Remove(letter);
-
-                Combine(combinations, tempList, combinationLength - 1);
-            }
+            var solver = new WordSolver(dictionary);
+            Run(solver);
         }
-
-
-        private static void ColorfulPrint(string word)
+        catch (JsonException)
         {
-            Console.ForegroundColor = _consoleColors[_colorCounter];
-            Console.WriteLine(word);
-            _colorCounter = (_colorCounter + 1) % _consoleColors.Length;
+            Console.Error.WriteLine("dictionary.json is not valid JSON.");
+        }
+    }
+
+    private static void Run(WordSolver solver)
+    {
+        while (true)
+        {
+            Console.Write("\nType letters (or 'exit'): ");
+            var input = Console.ReadLine();
+
+            if (input is null || input.Equals("exit", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var letters = new string(input
+                .Where(char.IsLetter)
+                .Select(char.ToLowerInvariant)
+                .ToArray());
+
+            if (letters.Length == 0)
+            {
+                Console.WriteLine("Please enter at least one letter.");
+                continue;
+            }
+
+            var words = solver.FindWords(letters);
+            Console.WriteLine($"Valid words: {words.Count}");
+
+            var colorCounter = 0;
+            foreach (var word in words)
+            {
+                Console.ForegroundColor = ConsoleColors[colorCounter];
+                Console.WriteLine(word);
+                colorCounter = (colorCounter + 1) % ConsoleColors.Length;
+            }
+
+            Console.ResetColor();
         }
     }
 }
