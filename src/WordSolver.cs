@@ -2,68 +2,83 @@ namespace WordCreator;
 
 public sealed class WordSolver
 {
-    private readonly IReadOnlyCollection<string> _dictionary;
+    private readonly TrieNode _root = new();
 
     public WordSolver(IEnumerable<string> dictionary)
     {
         ArgumentNullException.ThrowIfNull(dictionary);
 
-        _dictionary = dictionary
-            .Where(word => !string.IsNullOrWhiteSpace(word))
-            .Select(word => word.Trim().ToLowerInvariant())
-            .Distinct()
-            .ToArray();
+        // Performance improvement: words share prefix nodes instead of storing separate prefix strings.
+        foreach (var word in dictionary.Where(word => !string.IsNullOrWhiteSpace(word)))
+        {
+            var node = _root;
+            foreach (var letter in word.Trim().ToLowerInvariant())
+            {
+                if (!node.Children.TryGetValue(letter, out var child))
+                {
+                    child = new TrieNode();
+                    node.Children.Add(letter, child);
+                }
+
+                node = child;
+            }
+
+            node.IsWord = true;
+        }
     }
 
     public IReadOnlyList<string> FindWords(string letters)
     {
         ArgumentNullException.ThrowIfNull(letters);
 
-        var availableCounts = CountLetters(letters);
+        var availableLetters = letters
+            .Where(char.IsLetter)
+            .Select(char.ToLowerInvariant)
+            .ToArray();
         var matches = new SortedSet<string>();
+        var used = new bool[availableLetters.Length];
+        var candidate = new char[availableLetters.Length];
 
-        foreach (var word in _dictionary)
+        GeneratePermutations(availableLetters, used, candidate, 0, _root, matches);
+        return matches.ToArray();
+    }
+
+    private void GeneratePermutations(
+        char[] letters,
+        bool[] used,
+        char[] candidate,
+        int length,
+        TrieNode node,
+        SortedSet<string> matches)
+    {
+        if (node.IsWord)
         {
-            if (word.Length > letters.Length)
+            matches.Add(new string(candidate, 0, length));
+        }
+
+        for (var i = 0; i < letters.Length; i++)
+        {
+            if (used[i])
             {
                 continue;
             }
 
-            if (CanBuild(word, availableCounts))
+            // Performance improvement: a missing trie edge means no word starts with this candidate.
+            if (!node.Children.TryGetValue(letters[i], out var child))
             {
-                matches.Add(word);
+                continue;
             }
-        }
 
-        return matches.ToArray();
+            used[i] = true;
+            candidate[length] = letters[i];
+            GeneratePermutations(letters, used, candidate, length + 1, child, matches);
+            used[i] = false;
+        }
     }
 
-    private static Dictionary<char, int> CountLetters(string value)
+    private sealed class TrieNode
     {
-        var counts = new Dictionary<char, int>();
-
-        foreach (var character in value.Where(char.IsLetter))
-        {
-            var letter = char.ToLowerInvariant(character);
-            counts.TryGetValue(letter, out var count);
-            counts[letter] = count + 1;
-        }
-
-        return counts;
-    }
-
-    private static bool CanBuild(string word, IReadOnlyDictionary<char, int> availableCounts)
-    {
-        var requiredCounts = CountLetters(word);
-
-        foreach (var (letter, count) in requiredCounts)
-        {
-            if (!availableCounts.TryGetValue(letter, out var available) || count > available)
-            {
-                return false;
-            }
-        }
-
-        return true;
+        public Dictionary<char, TrieNode> Children { get; } = new();
+        public bool IsWord { get; set; }
     }
 }
